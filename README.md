@@ -142,6 +142,7 @@ nuts3_pop = nuts3_pop[nuts3_pop['sex']=='T']
 ```
 ```python
 ### NUTS 2
+## GDP
 # adds 0 instead of empty
 nuts2_gdp= nuts2_gdp.replace('',0)
 
@@ -154,7 +155,31 @@ melt_nuts2_gdp =\
 pd.melt(nuts2_gdp, id_vars=['NUTS'], var_name ='year', value_name ='GDP',\
         value_vars=[ '{} '.format(x) for x in list(range(2000,2020))[::-1] ])
 
+# years to numeric
+melt_nuts2_gdp[["year"]]=melt_nuts2_gdp[["year"]].apply(pd.to_numeric)
 
+## POPULATION
+# adds 0 instead of empty
+nuts2_pop= nuts2_pop.replace('',0)
+
+# delete 1991, 1990, 2020
+nuts2_pop = nuts2_pop.drop(["1991 ","1990 ", "2020 "], axis=1)
+
+# converts to numeric
+nuts2_pop[[ '{} '.format(x) for x in list(range(1992,2020))[::-1] ]] =\
+nuts2_pop[[ '{} '.format(x) for x in list(range(1992,2020))[::-1] ]].apply(pd.to_numeric)
+
+# melted nuts2_pop
+melt_nuts2_pop =\
+pd.melt(nuts2_pop, id_vars=['NUTS'], var_name ='year', value_name ='POP',\
+        value_vars=[ '{} '.format(x) for x in list(range(1992,2020))[::-1] ])
+
+# years to numeric
+melt_nuts2_pop[["year"]]=melt_nuts2_pop[["year"]].apply(pd.to_numeric)
+
+### NUTS 3
+## GDP
+# adds 0 instead of empty
 nuts3_gdp= nuts3_gdp.replace('',0)
 
 # converts to numeric
@@ -168,6 +193,25 @@ pd.melt(nuts3_gdp, id_vars=['NUTS'], var_name ='year', value_name ='GDP',\
 
 # years to numeric
 melt_nuts3_gdp[["year"]]=melt_nuts3_gdp[["year"]].apply(pd.to_numeric)
+
+## POPULATION
+# adds 0 instead of empty
+nuts3_pop= nuts3_pop.replace('',0)
+
+# delete 1991, 1990, 2020
+nuts3_pop = nuts3_pop.drop(["1991 ","1990 ", "2020 "], axis=1)
+
+# converts to numeric
+nuts3_pop[[ '{} '.format(x) for x in list(range(1992,2020))[::-1] ]] =\
+nuts3_pop[[ '{} '.format(x) for x in list(range(1992,2020))[::-1] ]].apply(pd.to_numeric)
+
+# melted nuts2_pop
+melt_nuts3_pop =\
+pd.melt(nuts3_pop, id_vars=['NUTS'], var_name ='year', value_name ='POP',\
+        value_vars=[ '{} '.format(x) for x in list(range(1992,2020))[::-1] ])
+
+# years to numeric
+melt_nuts3_pop[["year"]]=melt_nuts3_pop[["year"]].apply(pd.to_numeric)
 ```
 
 ## Step 4: Extracting SOL for any geographic level
@@ -184,32 +228,37 @@ Another for-loop iterates over the relevant years, and ```ee.ImageCollection()``
 Lastly, we store the SOL with the respective area and add it to a dataframe.
 
 ```python
-start = 1992
-end = 2019
+start = 1992 # start year
+end = 2019 # end year
 
 NUTS_dict={}
 nuts2_sol = pd.DataFrame()
 
+# counter to see how far the code has already processed while executing
 counter = 0
 total = len(list(nuts2_gdp["NUTS"]))
 
 for nut in list(nuts2_gdp["NUTS"]):
     counter = counter +1
     
+    # takes area of interest (aoi) 
     aoi = ee.FeatureCollection("users/janheissenberger/NUTS2_2016").filter(ee.Filter.eq('FID',str(nut))).geometry()
     
     try:
         NUTS_dict["NUTS"]= nut
 
         for year in range(start, end+1):
-
+            
             date_start = str(year)+'-01-01'
             date_end = str(year)+'-12-31'
-
+            
+            # takes the whole image collection
             image = ee.ImageCollection("users/janheissenberger/harmonized_dataset").filterDate(date_start,date_end)
+            
+            # takes the first image of collection (in our case it is only one image anyways)
             image = image.first()
 
-            # SOL
+            # takes the SOL of the given area of interest
             NUTS_dict[year]= image.reduceRegion(reducer=ee.Reducer.sum(), geometry=aoi, scale=1000, maxPixels=1e9).get('b1').getInfo()
     
         NUTS_dict["unit"] = "SOL"
@@ -226,41 +275,94 @@ print("\nTask successfully finished")
 ## Step 5: Prepare SOL data
 We manipulate our dataframe to only have two columns, namely the country/NUTS code and the respective SOL.
 ```python
-# SOL
 country_sol = pd.melt(country_sol,id_vars=['NUTS'], var_name='year', value_name='SOL', value_vars=list(map(str,list(range(1992,2020)))))
 country_sol = country_sol.rename(columns={'NUTS':'CC'})
-```
-```python
+
 melt_nuts2_sol = pd.melt(nuts2_sol, id_vars=['NUTS'], var_name ='year', value_name ='SOL', value_vars=list(map(str,list(range(1992,2020)))))
 melt_nuts2_sol[["year"]]=melt_nuts2_sol[["year"]].apply(pd.to_numeric) # years to numeric
-```
-```python
+
 melt_nuts3_sol = pd.melt(nuts3_sol, id_vars=['NUTS'], var_name ='year', value_name ='SOL', value_vars=list(map(str,list(range(1992,2020)))))
 melt_nuts3_sol[["year"]]=melt_nuts3_sol[["year"]].apply(pd.to_numeric) # years to numeric
 ```
 
-## Step 6: Merge & save GDP, population and SOL data for each geographic level
+## Step 6: Merge and save GDP, population and SOL data for each geographic level
 Then, we merge the SOL data with the GDP and population data and are then ready
 
 ### Country
 ```python
+# merge GDP with POP
 country_gdp_pop = pd.merge(country_gdp, country_pop, on=['Country Name','Country Code','year'])
+
+# merge GDP/POP with SOL
 country_gdp_pop_sol = pd.merge(country_gdp_pop, country_sol,on=['CC', 'year'])
+
+# CSV
 country_gdp_pop_sol.to_csv("final_country_gdp_pop_sol.csv", sep=",", index=False)
 ```
 ### NUTS 2
 ```python
-country_gdp_pop = pd.merge(country_gdp, country_pop, on=['Country Name','Country Code','year'])
-country_gdp_pop_sol = pd.merge(country_gdp_pop, country_sol,on=['CC', 'year'])
-country_gdp_pop_sol.to_csv("final_country_gdp_pop_sol.csv", sep=",", index=False)
+# merge GDP with SOL
+final_nuts2_gdp_sol = pd.merge(melt_nuts2_gdp, melt_nuts2_sol,  how='right', left_on=['NUTS','year'], right_on = ['NUTS','year'])
+
+# adds country code
+final_nuts2_gdp_sol["country"]=final_nuts2_gdp_sol["NUTS"].str[0:2]
+
+# merge GDP/SOL with POPULATION
+final_nuts2_gdp_pop_sol = pd.merge(melt_nuts2_pop, final_nuts2_gdp_sol,  how='right', left_on=['NUTS','year'], right_on = ['NUTS','year'])
+
+# CSV
+final_nuts2_gdp_pop_sol.to_csv('final_nuts3_gdp_sol.csv', index=False)
 ```
+
 ### NUTS 3
 ```python
-country_gdp_pop = pd.merge(country_gdp, country_pop, on=['Country Name','Country Code','year'])
-country_gdp_pop_sol = pd.merge(country_gdp_pop, country_sol,on=['CC', 'year'])
-country_gdp_pop_sol.to_csv("final_country_gdp_pop_sol.csv", sep=",", index=False)
+
+# merge GDP with SOL
+final_nuts3_gdp_sol = pd.merge(melt_nuts3_gdp, melt_nuts3_sol,  how='right', left_on=['NUTS','year'], right_on = ['NUTS','year'])
+
+# adds country code
+final_nuts3_gdp_sol["country"]=final_nuts3_gdp_sol["NUTS"].str[0:2]
+
+# merge GDP/SOL with POPULATION
+final_nuts3_gdp_pop_sol = pd.merge(melt_nuts3_pop, final_nuts3_gdp_sol,  how='right', left_on=['NUTS','year'], right_on = ['NUTS','year'])
+
+# CSV
+final_nuts3_gdp_pop_sol.to_csv('final_nuts3_gdp_sol.csv', index=False)
 ```
 
+## Step 7: Adding growth variables
+The growth variables of GDP, population, and SOL are added via MS Excel.
 
+## Step 8: Adding area
+For our analysis, we also require the km2 of every area in our dataset. After adding this, we have our datasets ready for analysis. The final datasets can be retrieved here https://doi.org/10.5281/zenodo.5579761.
+```python
+# reading in area data
+nuts_area = pd.read_csv("/Users/jan/Library/Mobile Documents/com~apple~CloudDocs/WU/Semester IV/_Bachelor Thesis/Analysis/undone data/AREA_NUTS.tsv", sep="\t")
 
+# cleaning
+nuts_area[['landuse','unit', 'geo\\time']] = nuts_area['landuse,unit,geo\\time'].str.split(',',expand=True)
+nuts_area = nuts_area.drop(columns=['landuse,unit,geo\\time', "2016 "])
+nuts_area = nuts_area[nuts_area["landuse"]=="TOTAL"]
+nuts_area = nuts_area.drop(columns=['landuse','unit'])
+nuts_area = nuts_area.rename(columns={"2013 ": "Area"})
+
+# reading in merged GDP/POP/SOL/growth data again
+country = pd.read_excel("/Users/jan/Library/Mobile Documents/com~apple~CloudDocs/WU/Semester IV/_Bachelor Thesis/Analysis/data/final_country_gdp_pop_sol.xlsx", sheet_name = "final")
+NUTS2 = pd.read_excel("/Users/jan/Library/Mobile Documents/com~apple~CloudDocs/WU/Semester IV/_Bachelor Thesis/Analysis/data/final_nuts2_gdp_pop_sol_growth.xlsx", sheet_name = "final")
+NUTS3 = pd.read_excel("/Users/jan/Library/Mobile Documents/com~apple~CloudDocs/WU/Semester IV/_Bachelor Thesis/Analysis/data/final_nuts3_gdp_pop_sol_growth.xlsx", sheet_name = "final")
+lau = pd.read_csv("/Users/jan/Library/Mobile Documents/com~apple~CloudDocs/WU/Semester IV/_Bachelor Thesis/Analysis/data/final_lau_sol.csv")
+
+# merging
+country_merge = country.merge(nuts_area, how="left", left_on="CC", right_on = "geo\\time")
+country_merge = country_merge.drop(columns='geo\\time')
+NUTS2_merge = NUTS2.merge(nuts_area, how="left", left_on="NUTS", right_on = "geo\\time")
+NUTS2_merge = NUTS2_merge.drop(columns='geo\\time')
+NUTS3_merge = NUTS3.merge(nuts_area, how="left", left_on="NUTS", right_on = "geo\\time")
+NUTS3_merge = NUTS3_merge.drop(columns='geo\\time')
+
+# saving as excel files ready for analysis
+country_merge.to_excel('data/final_country_gdp_pop_sol.xlsx', index=False)
+NUTS2_merge.to_excel('data/final_nuts2_gdp_pop_sol_growth.xlsx', index=False)
+NUTS3_merge.to_excel('data/final_nuts3_gdp_pop_sol_growth.xlsx', index=False)
+```
 
